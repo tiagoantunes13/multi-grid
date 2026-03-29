@@ -5,7 +5,7 @@ const MultiGridMDP = () => {
   const GRID_WIDTH = 20;
   const GRID_HEIGHT = 10;
   
-  const generateMockRewards = (description) => {
+  const generateMockRewards = (description: string) => {
     const grid = Array(GRID_HEIGHT).fill(0).map(() => Array(GRID_WIDTH).fill(0));
     const lower = description.toLowerCase();
     
@@ -76,14 +76,14 @@ const MultiGridMDP = () => {
     { id: 5, name: 'Safety', weight: 0.05, originalWeight: 0.05, description: 'Crime', rewards: generateMockRewards('safety'), visible: true }
   ]);
 
-  const [goalCell, setGoalCell] = useState(null);
-  const [policy, setPolicy] = useState(null);
-  const [valueFunction, setValueFunction] = useState(null);
+  const [goalCell, setGoalCell] = useState<{ row: number; col: number } | null>(null);
+  const [policy, setPolicy] = useState<string[][] | null>(null);
+  const [valueFunction, setValueFunction] = useState<number[][] | null>(null);
   const [iteration, setIteration] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
-  const [hoveredLayer, setHoveredLayer] = useState(null);
+  const [hoveredLayer, setHoveredLayer] = useState<number | null>(null);
   const [converged, setConverged] = useState(false);
-  const [editingLayerId, setEditingLayerId] = useState(null);
+  const [editingLayerId, setEditingLayerId] = useState<number | null>(null);
   const [isPainting, setIsPainting] = useState(false);
   const [discount, setDiscount] = useState(0.9);
   const [speed, setSpeed] = useState(1000);
@@ -94,9 +94,9 @@ const MultiGridMDP = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
 
-  const iterationRef = useRef(null);
+  const iterationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const paintCell = (row, col, isRightClick = false) => {
+  const paintCell = (row: number, col: number, isRightClick = false) => {
     if (!editingLayerId) return;
     const newValue = isRightClick ? 10 : 90;
     setLayers(layers.map(l => {
@@ -120,7 +120,7 @@ const MultiGridMDP = () => {
     return combined;
   };
 
-  const improvePolicy = (currentV, rewards, gamma) => {
+  const improvePolicy = (currentV: number[][], rewards: number[][], gamma: number) => {
     const newPolicy = Array(GRID_HEIGHT).fill(0).map(() => Array(GRID_WIDTH).fill(null));
     for (let i = 0; i < GRID_HEIGHT; i++) {
       for (let j = 0; j < GRID_WIDTH; j++) {
@@ -141,7 +141,7 @@ const MultiGridMDP = () => {
           const nj = j + action.dj;
           let expectedValue = 0;
           if (ni >= 0 && ni < GRID_HEIGHT && nj >= 0 && nj < GRID_WIDTH) {
-            const goalReward = (ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
+            const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
             const stepReward = rewards[ni][nj];
             expectedValue = goalReward + stepReward + gamma * currentV[ni][nj];
           } else {
@@ -158,7 +158,7 @@ const MultiGridMDP = () => {
     return newPolicy;
   };
 
-  const evaluatePolicy = (currentPolicy, currentV, rewards, gamma) => {
+  const evaluatePolicy = (currentPolicy: string[][], currentV: number[][], rewards: number[][], gamma: number) => {
     const newV = Array(GRID_HEIGHT).fill(0).map(() => Array(GRID_WIDTH).fill(0));
     for (let i = 0; i < GRID_HEIGHT; i++) {
       for (let j = 0; j < GRID_WIDTH; j++) {
@@ -171,14 +171,14 @@ const MultiGridMDP = () => {
           newV[i][j] = currentV[i][j];
           continue;
         }
-        const actionMap = { '↑': [-1, 0], '↓': [1, 0], '←': [0, -1], '→': [0, 1] };
+        const actionMap: Record<string, number[]> = { '↑': [-1, 0], '↓': [1, 0], '←': [0, -1], '→': [0, 1] };
         const move = actionMap[action] || [0, 0];
         const di = move[0];
         const dj = move[1];
         const ni = i + di;
         const nj = j + dj;
         if (ni >= 0 && ni < GRID_HEIGHT && nj >= 0 && nj < GRID_WIDTH) {
-          const goalReward = (ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
+          const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
           const stepReward = rewards[ni][nj];
           newV[i][j] = goalReward + stepReward + gamma * currentV[ni][nj];
         } else {
@@ -315,7 +315,7 @@ const MultiGridMDP = () => {
     }
   };
 
-  const getColorForValue = (value) => {
+  const getColorForValue = (value: number) => {
     const intensity = Math.round((value / 100) * 255);
     const r = Math.round(255 - intensity * 0.5);
     const g = Math.round(intensity * 0.9);
