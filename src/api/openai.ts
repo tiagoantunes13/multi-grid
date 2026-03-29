@@ -30,11 +30,21 @@ export interface ChatAction {
 export async function processChat(
   userMessage: string,
   currentLayers: { name: string; weight: number }[],
-  apiKey: string
+  apiKey: string,
+  chatHistory: { role: string; text: string }[]
 ): Promise<ChatAction> {
   const layersContext = currentLayers
     .map(l => `${l.name}: ${Math.round(l.weight * 100)}%`)
     .join(', ');
+
+  const messages: { role: string; content: string }[] = [
+    { role: 'system', content: SYSTEM_PROMPT + `\n\nCurrent layers: ${layersContext}` },
+    ...chatHistory.map(msg => ({
+      role: msg.role === 'assistant' ? 'assistant' : 'user',
+      content: msg.text,
+    })),
+    { role: 'user', content: userMessage },
+  ];
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -44,11 +54,8 @@ export async function processChat(
         'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: 'gpt-5.1-mini',
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `Current layers: ${layersContext}\n\nUser request: ${userMessage}` },
-        ],
+        model: 'gpt-5-mini-2025-08-07',
+        messages,
       }),
     });
 

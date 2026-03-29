@@ -257,7 +257,7 @@ const MultiGridMDP = () => {
 
     try {
       const currentLayersContext = layers.map(l => ({ name: l.name, weight: l.weight }));
-      const result: ChatAction = await processChat(userMessage, currentLayersContext, apiKey);
+      const result: ChatAction = await processChat(userMessage, currentLayersContext, apiKey, chatHistory);
 
       // Execute the action
       if (result.action === 'add_layer' && result.layerName) {
