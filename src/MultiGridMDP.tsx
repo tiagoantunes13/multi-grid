@@ -86,6 +86,8 @@ const MultiGridMDP = () => {
   const [converged, setConverged] = useState(false);
   const [editingLayerId, setEditingLayerId] = useState<number | null>(null);
   const [isPainting, setIsPainting] = useState(false);
+  const [brushValue, setBrushValue] = useState(90);
+  const [notification, setNotification] = useState<string | null>(null);
   const [discount, setDiscount] = useState(0.9);
   const [speed, setSpeed] = useState(1000);
   const [chatInput, setChatInput] = useState('');
@@ -96,10 +98,17 @@ const MultiGridMDP = () => {
   const [apiKey, setApiKey] = useState('');
 
   const iterationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notificationRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const paintCell = (row: number, col: number, isRightClick = false) => {
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    if (notificationRef.current) clearTimeout(notificationRef.current);
+    notificationRef.current = setTimeout(() => setNotification(null), 5000);
+  };
+
+  const paintCell = (row: number, col: number) => {
     if (!editingLayerId) return;
-    const newValue = isRightClick ? 10 : 90;
+    const newValue = brushValue;
     setLayers(layers.map(l => {
       if (l.id !== editingLayerId) return l;
       const newRewards = l.rewards.map((r, i) =>
@@ -292,6 +301,7 @@ const MultiGridMDP = () => {
         } else {
           setLayers(newLayersList);
         }
+        showNotification(`Layer "${name}" added! Click ✏️ next to it to paint rewards, or describe the pattern via chat.`);
       } else if (result.action === 'change_weight' && result.layerName) {
         const foundLayer = layers.find(l => l.name.toLowerCase() === result.layerName.toLowerCase());
         if (foundLayer) {
@@ -348,7 +358,7 @@ const MultiGridMDP = () => {
           <div className="mt-1 text-xs" style={{color: Math.abs(totalWeight - 1.0) < 0.001 ? '#34d399' : '#fbbf24'}}>
             Total: {totalWeight.toFixed(3)}
           </div>
-          <p className="mt-1 text-xs text-gray-500">Chat to add/remove layers. Click ✏️ to paint rewards (left-click: 90, right-click: 10).</p>
+          <p className="mt-1 text-xs text-gray-500">Chat to add/remove layers. Click ✏️ to paint rewards with adjustable brush value.</p>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -472,7 +482,13 @@ const MultiGridMDP = () => {
         </div>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-2 overflow-auto">
+      <div className="flex-1 flex flex-col items-center justify-center p-2 overflow-auto relative">
+        {notification && (
+          <div className="absolute top-4 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm shadow-lg z-10 flex items-center gap-2">
+            <span>{notification}</span>
+            <button onClick={() => setNotification(null)} className="text-white/70 hover:text-white font-bold">✕</button>
+          </div>
+        )}
         <div className="text-center">
           <h1 className="text-xl font-bold mb-1">
             {editingLayerId
@@ -483,9 +499,19 @@ const MultiGridMDP = () => {
           </h1>
           <p className="text-xs text-gray-400 mb-2">
             {editingLayerId
-              ? 'Click to paint high (90), right-click for low (10)'
+              ? `Click to paint (brush value: ${brushValue})`
               : goalCell ? (converged ? 'Converged!' : isRunning ? 'Solving...' : 'Click Start') : 'Click cell for goal'}
           </p>
+          {editingLayerId && (
+            <div className="flex items-center justify-center gap-3 mb-2">
+              <span className="text-xs text-gray-400">0</span>
+              <input type="range" min="0" max="100" step="1" value={brushValue}
+                onChange={(e) => setBrushValue(parseInt(e.target.value))}
+                className="w-48 h-1" />
+              <span className="text-xs text-gray-400">100</span>
+              <span className="text-xs font-semibold text-blue-400">{brushValue}</span>
+            </div>
+          )}
           <div
             className="inline-grid gap-0.5 bg-gray-700 p-1 rounded-lg select-none"
             style={{transform: 'scale(0.85)', cursor: editingLayerId ? 'crosshair' : 'pointer'}}
@@ -502,12 +528,12 @@ const MultiGridMDP = () => {
                       if (editingLayerId) {
                         e.preventDefault();
                         setIsPainting(true);
-                        paintCell(i, j, e.button === 2);
+                        paintCell(i, j);
                       }
                     }}
-                    onMouseEnter={(e) => {
+                    onMouseEnter={() => {
                       if (editingLayerId && isPainting) {
-                        paintCell(i, j, e.buttons === 2);
+                        paintCell(i, j);
                       }
                     }}
                     onClick={() => {
