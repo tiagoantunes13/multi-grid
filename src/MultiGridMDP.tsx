@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { processChat, type ChatAction } from './api/openai';
+import { generateFromPattern, validatePattern } from './patterns';
 
 const MultiGridMDP = () => {
   const GRID_WIDTH = 20;
@@ -89,7 +90,7 @@ const MultiGridMDP = () => {
   const [speed, setSpeed] = useState(1000);
   const [chatInput, setChatInput] = useState('');
   const [chatHistory, setChatHistory] = useState([
-    { role: 'assistant', text: 'Hello! Try: Add a parks layer with 15% weight' }
+    { role: 'assistant', text: 'Hello! Try: "Add a parks layer with 15% weight" or "Make roads have high values on the left"' }
   ]);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
@@ -132,7 +133,8 @@ const MultiGridMDP = () => {
           { di: -1, dj: 0, dir: '↑' },
           { di: 1, dj: 0, dir: '↓' },
           { di: 0, dj: -1, dir: '←' },
-          { di: 0, dj: 1, dir: '→' }
+          { di: 0, dj: 1, dir: '→' },
+          { di: 0, dj: 0, dir: '⏺' }
         ];
         let bestAction = null;
         let bestValue = -Infinity;
@@ -141,8 +143,8 @@ const MultiGridMDP = () => {
           const nj = j + action.dj;
           let expectedValue = 0;
           if (ni >= 0 && ni < GRID_HEIGHT && nj >= 0 && nj < GRID_WIDTH) {
-            const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
-            const stepReward = rewards[ni][nj];
+            const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 10000 : 0;
+            const stepReward = rewards[i][j];
             expectedValue = goalReward + stepReward + gamma * currentV[ni][nj];
           } else {
             expectedValue = -Infinity;
@@ -158,37 +160,6 @@ const MultiGridMDP = () => {
     return newPolicy;
   };
 
-  const evaluatePolicy = (currentPolicy: string[][], currentV: number[][], rewards: number[][], gamma: number) => {
-    const newV = Array(GRID_HEIGHT).fill(0).map(() => Array(GRID_WIDTH).fill(0));
-    for (let i = 0; i < GRID_HEIGHT; i++) {
-      for (let j = 0; j < GRID_WIDTH; j++) {
-        if (goalCell && i === goalCell.row && j === goalCell.col) {
-          newV[i][j] = 0;
-          continue;
-        }
-        const action = currentPolicy[i][j];
-        if (!action || action === 'goal') {
-          newV[i][j] = currentV[i][j];
-          continue;
-        }
-        const actionMap: Record<string, number[]> = { '↑': [-1, 0], '↓': [1, 0], '←': [0, -1], '→': [0, 1] };
-        const move = actionMap[action] || [0, 0];
-        const di = move[0];
-        const dj = move[1];
-        const ni = i + di;
-        const nj = j + dj;
-        if (ni >= 0 && ni < GRID_HEIGHT && nj >= 0 && nj < GRID_WIDTH) {
-          const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 100 : 0;
-          const stepReward = rewards[ni][nj];
-          newV[i][j] = goalReward + stepReward + gamma * currentV[ni][nj];
-        } else {
-          newV[i][j] = currentV[i][j];
-        }
-      }
-    }
-    return newV;
-  };
-
   const performPolicyIteration = () => {
     if (!goalCell || converged) return;
     const rewards = calculateCombinedRewards();
@@ -201,18 +172,32 @@ const MultiGridMDP = () => {
       return;
     }
     
-    let newV = valueFunction.map(row => [...row]);
+    const actionMap: Record<string, number[]> = { '↑': [-1, 0], '↓': [1, 0], '←': [0, -1], '→': [0, 1], '⏺': [0, 0] };
+    const newV = valueFunction.map(row => [...row]);
     let maxDelta = Infinity;
     let evalCount = 0;
-    while (maxDelta > 0.01 && evalCount < 10) {
-      const updatedV = evaluatePolicy(policy, newV, rewards, discount);
+    while (maxDelta > 0.0001 && evalCount < 200) {
       maxDelta = 0;
       for (let i = 0; i < GRID_HEIGHT; i++) {
         for (let j = 0; j < GRID_WIDTH; j++) {
-          maxDelta = Math.max(maxDelta, Math.abs(updatedV[i][j] - newV[i][j]));
+          if (goalCell && i === goalCell.row && j === goalCell.col) {
+            newV[i][j] = 0;
+            continue;
+          }
+          const action = policy[i][j];
+          if (!action || action === 'goal') continue;
+          const move = actionMap[action] || [0, 0];
+          const ni = i + move[0];
+          const nj = j + move[1];
+          if (ni >= 0 && ni < GRID_HEIGHT && nj >= 0 && nj < GRID_WIDTH) {
+            const goalReward = (goalCell && ni === goalCell.row && nj === goalCell.col) ? 10000 : 0;
+            const stepReward = rewards[i][j];
+            const newVal = goalReward + stepReward + discount * newV[ni][nj];
+            maxDelta = Math.max(maxDelta, Math.abs(newVal - newV[i][j]));
+            newV[i][j] = newVal;
+          }
         }
       }
-      newV = updatedV;
       evalCount++;
     }
     setValueFunction(newV);
@@ -247,6 +232,16 @@ const MultiGridMDP = () => {
     };
   }, [isRunning, iteration, valueFunction, policy, goalCell, discount, speed, converged]);
 
+  useEffect(() => {
+    if (policy || valueFunction) {
+      setPolicy(null);
+      setValueFunction(null);
+      setIteration(0);
+      setConverged(false);
+      setIsRunning(false);
+    }
+  }, [layers]);
+
   const handleChat = async () => {
     if (!chatInput.trim() || isLoading) return;
 
@@ -270,7 +265,9 @@ const MultiGridMDP = () => {
           weight: weight,
           originalWeight: weight,
           description: name,
-          rewards: generateMockRewards(name.toLowerCase()),
+          rewards: (result.pattern && validatePattern(result.pattern))
+            ? generateFromPattern(validatePattern(result.pattern)!, GRID_WIDTH, GRID_HEIGHT)
+            : generateMockRewards(name.toLowerCase()),
           visible: true
         };
 
@@ -304,6 +301,18 @@ const MultiGridMDP = () => {
         const foundLayer = layers.find(l => l.name.toLowerCase() === result.layerName.toLowerCase());
         if (foundLayer) {
           setLayers(layers.filter(l => l.id !== foundLayer.id));
+        }
+      } else if (result.action === 'edit_rewards' && result.layerName && result.pattern) {
+        const foundLayer = layers.find(l => l.name.toLowerCase() === result.layerName.toLowerCase());
+        const validatedPattern = validatePattern(result.pattern);
+        if (foundLayer && validatedPattern) {
+          const newRewards = generateFromPattern(validatedPattern, GRID_WIDTH, GRID_HEIGHT);
+          setLayers(layers.map(l => l.id === foundLayer.id ? { ...l, rewards: newRewards } : l));
+        }
+      } else if (result.action === 'rename_layer' && result.layerName && result.newName) {
+        const foundLayer = layers.find(l => l.name.toLowerCase() === result.layerName.toLowerCase());
+        if (foundLayer) {
+          setLayers(layers.map(l => l.id === foundLayer.id ? { ...l, name: result.newName!, description: result.newName! } : l));
         }
       }
 
@@ -339,6 +348,7 @@ const MultiGridMDP = () => {
           <div className="mt-1 text-xs" style={{color: Math.abs(totalWeight - 1.0) < 0.001 ? '#34d399' : '#fbbf24'}}>
             Total: {totalWeight.toFixed(3)}
           </div>
+          <p className="mt-1 text-xs text-gray-500">Chat to add/remove layers. Click ✏️ to paint rewards (left-click: 90, right-click: 10).</p>
         </div>
         
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -420,13 +430,14 @@ const MultiGridMDP = () => {
           </div>
         </div>
         
-        <div className="p-3 border-t border-gray-700 flex flex-col min-h-[180px] max-h-64">
+        <div className="p-3 border-t border-gray-700 flex flex-col min-h-[280px] max-h-96">
           <h3 className="text-sm font-semibold mb-2">💬 AI Assistant</h3>
           {!apiKey && (
             <div className="mb-2">
               <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                 placeholder="Enter OpenAI API key to enable chat"
                 className="w-full px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded" />
+              <p className="text-xs text-gray-500 mt-1">Your key is not stored and is only used for this session.</p>
             </div>
           )}
           <div className="flex-1 overflow-y-auto mb-2 p-2 bg-gray-900 rounded text-xs space-y-2">
@@ -451,7 +462,7 @@ const MultiGridMDP = () => {
           <div className="flex gap-2">
             <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleChat(); }}
-              placeholder="Add parks layer"
+              placeholder="e.g. Add parks layer / Make roads high on left"
               disabled={isLoading || !apiKey}
               className="flex-1 px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded disabled:opacity-50" />
             <button onClick={handleChat} disabled={isLoading || !apiKey} className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded font-bold disabled:opacity-50">
